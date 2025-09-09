@@ -1,14 +1,43 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '@/hooks/useAuth';
 import { useScan } from "@/hooks/useScan";
 import { SubdomainForm, type ScanConfig } from "@/components/SubdomainForm";
 import { Terminal } from "@/components/Terminal";
 import { ResultsDashboard } from "@/components/ResultsDashboard";
 import { ScanHistory } from "@/components/ScanHistory";
+import { Header } from "@/components/Header";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Shield, Zap, Globe, Eye } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Shield, Zap, Globe, Eye, Lock } from "lucide-react";
 
 const Index = () => {
+  const { isAuthenticated, loading } = useAuth();
+  const navigate = useNavigate();
   const { currentScan, results, isScanning, stats, startScan } = useScan();
+
+  // Redirect unauthenticated users to auth page
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      navigate('/auth');
+    }
+  }, [isAuthenticated, loading, navigate]);
+
+  // Show loading while checking auth
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="matrix-bg"></div>
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  // Don't render anything if not authenticated (will redirect)
+  if (!isAuthenticated) {
+    return null;
+  }
 
   const handleScan = async (config: ScanConfig) => {
     await startScan(config);
@@ -20,6 +49,9 @@ const Index = () => {
       <div className="matrix-bg"></div>
       
       <div className="container mx-auto p-6 space-y-8">
+        {/* Header with user info and sign out */}
+        <Header />
+        
         {/* Header */}
         <div className="text-center space-y-4">
           <div className="flex items-center justify-center gap-3">

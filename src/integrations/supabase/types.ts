@@ -14,6 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          email: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          email?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       scan_results: {
         Row: {
           cors_issues: string[] | null
@@ -29,6 +53,7 @@ export type Database = {
           subdomain: string
           technologies: string[] | null
           updated_at: string
+          user_id: string | null
           vulnerabilities: string[] | null
         }
         Insert: {
@@ -45,6 +70,7 @@ export type Database = {
           subdomain: string
           technologies?: string[] | null
           updated_at?: string
+          user_id?: string | null
           vulnerabilities?: string[] | null
         }
         Update: {
@@ -61,6 +87,7 @@ export type Database = {
           subdomain?: string
           technologies?: string[] | null
           updated_at?: string
+          user_id?: string | null
           vulnerabilities?: string[] | null
         }
         Relationships: [
@@ -87,6 +114,7 @@ export type Database = {
           status: string
           total_subdomains: number | null
           updated_at: string
+          user_id: string | null
           vulnerabilities: number | null
         }
         Insert: {
@@ -102,6 +130,7 @@ export type Database = {
           status?: string
           total_subdomains?: number | null
           updated_at?: string
+          user_id?: string | null
           vulnerabilities?: number | null
         }
         Update: {
@@ -117,6 +146,7 @@ export type Database = {
           status?: string
           total_subdomains?: number | null
           updated_at?: string
+          user_id?: string | null
           vulnerabilities?: number | null
         }
         Relationships: []
