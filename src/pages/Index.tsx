@@ -101,7 +101,11 @@ const Index = () => {
           <div className="lg:col-span-2 space-y-6">
             {/* Terminal */}
             {(isScanning || currentScan) && (
-              <Terminal isActive={isScanning} />
+              <Terminal 
+                isActive={isScanning} 
+                scanData={currentScan}
+                domain={currentScan?.domain || "example.com"}
+              />
             )}
 
             {/* Results Dashboard */}
