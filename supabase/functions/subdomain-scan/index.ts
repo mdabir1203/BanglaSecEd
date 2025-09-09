@@ -51,16 +51,9 @@ serve(async (req) => {
 
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const { config, user_id }: { config: ScanConfig; user_id: string } = await req.json();
+    const { config }: { config: ScanConfig } = await req.json();
     
-    if (!user_id) {
-      return new Response(JSON.stringify({ error: 'Authentication required' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-    
-    console.log(`Starting subdomain scan for ${config.domain} (user: ${user_id})`);
+    console.log(`Starting subdomain scan for ${config.domain}`);
 
     // Create scan record
     const { data: scan, error: scanError } = await supabase
@@ -69,7 +62,6 @@ serve(async (req) => {
         domain: config.domain,
         status: 'running',
         config: config,
-        user_id: user_id,
         started_at: new Date().toISOString()
       })
       .select()
@@ -80,7 +72,7 @@ serve(async (req) => {
     }
 
     // Start background scan
-    EdgeRuntime.waitUntil(performScan(scan.id, config, user_id, supabase));
+    EdgeRuntime.waitUntil(performScan(scan.id, config, supabase));
 
     return new Response(JSON.stringify({ 
       scanId: scan.id,
@@ -98,7 +90,7 @@ serve(async (req) => {
   }
 });
 
-async function performScan(scanId: string, config: ScanConfig, userId: string, supabase: any) {
+async function performScan(scanId: string, config: ScanConfig, supabase: any) {
   try {
     // Update scan status
     await updateScanProgress(supabase, scanId, 10, 'Enumerating subdomains...');
@@ -144,7 +136,6 @@ async function performScan(scanId: string, config: ScanConfig, userId: string, s
         .from('scan_results')
         .insert(results.map(result => ({
           scan_id: scanId,
-          user_id: userId,
           subdomain: result.subdomain,
           ip: result.ip,
           http_status: result.httpStatus,
