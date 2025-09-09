@@ -1,1 +1,4 @@
 project_id = "arizcblzuonmgstdiscq"
+
+[functions.subdomain-scan]
+verify_jwt = false

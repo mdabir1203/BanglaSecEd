@@ -14,7 +14,113 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      scan_results: {
+        Row: {
+          cors_issues: string[] | null
+          created_at: string
+          fingerprints: Json | null
+          http_status: number | null
+          id: string
+          ip: string | null
+          open_ports: number[] | null
+          risk: string
+          scan_id: string
+          server_header: string | null
+          subdomain: string
+          technologies: string[] | null
+          updated_at: string
+          vulnerabilities: string[] | null
+        }
+        Insert: {
+          cors_issues?: string[] | null
+          created_at?: string
+          fingerprints?: Json | null
+          http_status?: number | null
+          id?: string
+          ip?: string | null
+          open_ports?: number[] | null
+          risk?: string
+          scan_id: string
+          server_header?: string | null
+          subdomain: string
+          technologies?: string[] | null
+          updated_at?: string
+          vulnerabilities?: string[] | null
+        }
+        Update: {
+          cors_issues?: string[] | null
+          created_at?: string
+          fingerprints?: Json | null
+          http_status?: number | null
+          id?: string
+          ip?: string | null
+          open_ports?: number[] | null
+          risk?: string
+          scan_id?: string
+          server_header?: string | null
+          subdomain?: string
+          technologies?: string[] | null
+          updated_at?: string
+          vulnerabilities?: string[] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scan_results_scan_id_fkey"
+            columns: ["scan_id"]
+            isOneToOne: false
+            referencedRelation: "scans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scans: {
+        Row: {
+          completed_at: string | null
+          config: Json
+          created_at: string
+          domain: string
+          high_risk: number | null
+          id: string
+          live_subdomains: number | null
+          progress: number | null
+          started_at: string | null
+          status: string
+          total_subdomains: number | null
+          updated_at: string
+          vulnerabilities: number | null
+        }
+        Insert: {
+          completed_at?: string | null
+          config?: Json
+          created_at?: string
+          domain: string
+          high_risk?: number | null
+          id?: string
+          live_subdomains?: number | null
+          progress?: number | null
+          started_at?: string | null
+          status?: string
+          total_subdomains?: number | null
+          updated_at?: string
+          vulnerabilities?: number | null
+        }
+        Update: {
+          completed_at?: string | null
+          config?: Json
+          created_at?: string
+          domain?: string
+          high_risk?: number | null
+          id?: string
+          live_subdomains?: number | null
+          progress?: number | null
+          started_at?: string | null
+          status?: string
+          total_subdomains?: number | null
+          updated_at?: string
+          vulnerabilities?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never

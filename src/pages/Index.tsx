@@ -1,89 +1,17 @@
-import { useState } from "react";
+import { useScan } from "@/hooks/useScan";
 import { SubdomainForm, type ScanConfig } from "@/components/SubdomainForm";
 import { Terminal } from "@/components/Terminal";
 import { ResultsDashboard } from "@/components/ResultsDashboard";
+import { ScanHistory } from "@/components/ScanHistory";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Shield, Zap, Globe, Eye } from "lucide-react";
 
-// Mock data for demonstration
-const mockResults = [
-  {
-    subdomain: "api.example.com",
-    ip: "192.168.1.100",
-    httpStatus: 200,
-    ports: [80, 443, 8080],
-    corsIssues: ["Wildcard CORS allowed", "Allow-Credentials: true"],
-    technologies: ["nginx", "nodejs", "react"],
-    vulnerabilities: ["CORS misconfiguration allows credential theft", "Exposed API endpoints"],
-    risk: "high" as const
-  },
-  {
-    subdomain: "staging.example.com",
-    ip: "192.168.1.101",
-    httpStatus: 404,
-    ports: [80, 443],
-    corsIssues: [],
-    technologies: ["apache", "php"],
-    vulnerabilities: ["Potential subdomain takeover - AWS S3"],
-    risk: "critical" as const
-  },
-  {
-    subdomain: "www.example.com",
-    ip: "192.168.1.102",
-    httpStatus: 200,
-    ports: [80, 443],
-    corsIssues: [],
-    technologies: ["cloudflare", "wordpress"],
-    vulnerabilities: [],
-    risk: "low" as const
-  },
-  {
-    subdomain: "mail.example.com",
-    ip: "192.168.1.103",
-    httpStatus: 200,
-    ports: [25, 465, 993],
-    corsIssues: [],
-    technologies: ["postfix", "dovecot"],
-    vulnerabilities: [],
-    risk: "medium" as const
-  }
-];
-
 const Index = () => {
-  const [isScanning, setIsScanning] = useState(false);
-  const [showTerminal, setShowTerminal] = useState(false);
-  const [results, setResults] = useState<typeof mockResults>([]);
-  const [progress, setProgress] = useState(0);
-  const [scanConfig, setScanConfig] = useState<ScanConfig | null>(null);
-
-  const stats = {
-    totalFound: results.length,
-    liveSubdomains: results.filter(r => r.httpStatus && r.httpStatus < 400).length,
-    vulnerabilities: results.reduce((acc, r) => acc + (r.vulnerabilities?.length || 0), 0),
-    highRisk: results.filter(r => r.risk === 'high' || r.risk === 'critical').length
-  };
+  const { currentScan, results, isScanning, stats, startScan } = useScan();
 
   const handleScan = async (config: ScanConfig) => {
-    setIsScanning(true);
-    setShowTerminal(true);
-    setScanConfig(config);
-    setResults([]);
-    setProgress(0);
-
-    // Simulate scanning progress
-    const totalSteps = 100;
-    const interval = setInterval(() => {
-      setProgress(prev => {
-        if (prev >= totalSteps) {
-          clearInterval(interval);
-          setIsScanning(false);
-          setResults(mockResults);
-          return totalSteps;
-        }
-        return prev + Math.random() * 5;
-      });
-    }, 200);
+    await startScan(config);
   };
 
   return (
@@ -129,6 +57,9 @@ const Index = () => {
           <div className="space-y-6">
             <SubdomainForm onScan={handleScan} isScanning={isScanning} />
             
+            {/* Scan History */}
+            <ScanHistory />
+            
             {/* Features Card */}
             <Card className="bg-card/50 backdrop-blur-sm border-primary/30">
               <CardHeader>
@@ -169,7 +100,7 @@ const Index = () => {
           {/* Right Panel - Results & Terminal */}
           <div className="lg:col-span-2 space-y-6">
             {/* Terminal */}
-            {showTerminal && (
+            {(isScanning || currentScan) && (
               <Terminal isActive={isScanning} />
             )}
 
@@ -178,13 +109,13 @@ const Index = () => {
               <ResultsDashboard 
                 results={results}
                 isScanning={isScanning}
-                progress={progress}
+                progress={currentScan?.progress || 0}
                 stats={stats}
               />
             )}
 
             {/* Welcome Card - shown when no scan is active */}
-            {!showTerminal && results.length === 0 && (
+            {!isScanning && !currentScan && results.length === 0 && (
               <Card className="bg-gradient-cyber border-accent/30 text-center">
                 <CardContent className="p-8">
                   <Shield className="h-16 w-16 text-accent mx-auto mb-4 cyber-glow" />
