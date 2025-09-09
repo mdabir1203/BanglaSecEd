@@ -36,6 +36,7 @@ export interface ScanData {
   high_risk: number;
   started_at: string;
   completed_at?: string;
+  user_id: string;
 }
 
 export const useScan = () => {
@@ -45,11 +46,21 @@ export const useScan = () => {
 
   const startScan = useCallback(async (config: ScanConfig) => {
     try {
+      // Check if user is authenticated
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        toast.error('Please sign in to start a scan');
+        return;
+      }
+
       setIsScanning(true);
       setResults([]);
       
       const { data, error } = await supabase.functions.invoke('subdomain-scan', {
-        body: { config }
+        body: { 
+          config,
+          user_id: user.id
+        }
       });
 
       if (error) {
@@ -139,9 +150,15 @@ export const useScan = () => {
 
   const getRecentScans = useCallback(async () => {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return [];
+      }
+
       const { data, error } = await supabase
         .from('scans')
         .select('*')
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -158,10 +175,16 @@ export const useScan = () => {
 
   const getScanResults = useCallback(async (scanId: string) => {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return [];
+      }
+
       const { data, error } = await supabase
         .from('scan_results')
         .select('*')
-        .eq('scan_id', scanId);
+        .eq('scan_id', scanId)
+        .eq('user_id', user.id);
 
       if (error) {
         throw error;
