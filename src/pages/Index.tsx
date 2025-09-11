@@ -55,9 +55,9 @@ const Index = () => {
         {/* Header */}
         <div className="text-center space-y-4">
           <div className="flex items-center justify-center gap-3">
-            <Shield className="h-12 w-12 text-primary cyber-glow" />
+            <img src="/lovable-uploads/3da5b9b8-0ec3-4f18-9fe2-9ee76f298099.png" alt="ShadowMap Logo" className="h-12 w-12" />
             <h1 className="text-4xl md:text-6xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-              SubEnum Pro
+              ShadowMap
             </h1>
           </div>
           <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
@@ -170,7 +170,7 @@ const Index = () => {
 
         {/* Footer */}
         <div className="text-center text-sm text-muted-foreground pt-8 border-t border-border">
-          <p>SubEnum Pro v2.0.1 - Professional Subdomain Enumeration & Attack Surface Mapping</p>
+          <p>ShadowMap v2.0.1 - Professional Subdomain Enumeration & Attack Surface Mapping</p>
           <p className="mt-1">Built for cybersecurity professionals and penetration testers</p>
         </div>
       </div>

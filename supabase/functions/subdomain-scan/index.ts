@@ -79,8 +79,10 @@ serve(async (req) => {
       throw new Error(`Failed to create scan: ${scanError.message}`);
     }
 
-    // Start background scan
-    EdgeRuntime.waitUntil(performScan(scan.id, config, user_id, supabase));
+    // Start background scan  
+    performScan(scan.id, config, user_id, supabase).catch(error => {
+      console.error('Background scan failed:', error);
+    });
 
     return new Response(JSON.stringify({ 
       scanId: scan.id,

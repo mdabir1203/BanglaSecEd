@@ -54,9 +54,9 @@ const Auth = () => {
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-4">
           <div className="flex items-center justify-center gap-3">
-            <Shield className="h-12 w-12 text-primary cyber-glow" />
+            <img src="/lovable-uploads/3da5b9b8-0ec3-4f18-9fe2-9ee76f298099.png" alt="ShadowMap Logo" className="h-12 w-12" />
             <h1 className="text-4xl font-bold bg-gradient-primary bg-clip-text text-transparent">
-              SubEnum Pro
+              ShadowMap
             </h1>
           </div>
           <p className="text-muted-foreground">
@@ -78,7 +78,7 @@ const Auth = () => {
                   Welcome Back
                 </CardTitle>
                 <CardDescription>
-                  Sign in to your SubEnum Pro account
+                  Sign in to your ShadowMap account
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -131,7 +131,7 @@ const Auth = () => {
                   Create Account
                 </CardTitle>
                 <CardDescription>
-                  Join SubEnum Pro for secure reconnaissance
+                  Join ShadowMap for secure reconnaissance
                 </CardDescription>
               </CardHeader>
               <CardContent>
