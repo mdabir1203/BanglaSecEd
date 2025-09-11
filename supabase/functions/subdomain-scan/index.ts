@@ -20,6 +20,12 @@ interface ScanConfig {
   modules: string[];
 }
 
+interface TakeoverEvidence {
+  service: string;
+  confidence: 'High' | 'Medium' | 'Low';
+  proof: string;
+}
+
 interface SubdomainResult {
   subdomain: string;
   ip?: string;
@@ -31,18 +37,55 @@ interface SubdomainResult {
   vulnerabilities: string[];
   risk: 'low' | 'medium' | 'high' | 'critical';
   fingerprints: Record<string, string>;
+  takeoverEvidence?: TakeoverEvidence[];
+  cloudSaas?: string[];
 }
 
 const USER_AGENTS = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (Version 14.1.1 Safari/605.1.15)",
 ];
 
-const COMMON_PORTS = [21, 22, 25, 80, 443, 3306, 8080, 8443, 3389, 5432, 27017, 9200, 9300];
+const COMMON_PORTS = [21, 22, 25, 53, 80, 110, 143, 443, 993, 995, 3306, 5432, 8080, 8443, 3389, 27017, 9200, 9300];
 
 const SUBDOMAIN_REGEX = /^[a-z0-9][-a-z0-9.]*[a-z0-9]\.([a-z0-9-]+\.)*[a-z0-9]+$/;
 const IP_REGEX = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/;
+
+const CLOUD_SAAS_PATTERNS = [
+  { name: 'AWS S3', pattern: /^[a-z0-9-]+\.s3\.amazonaws\.com$/ },
+  { name: 'Azure Blob', pattern: /^[a-z0-9-]+\.blob\.core\.windows\.net$/ },
+  { name: 'GCP Storage', pattern: /^[a-z0-9-]+\.storage\.googleapis\.com$/ },
+  { name: 'Heroku', pattern: /^[a-z0-9-]+\.herokuapp\.com$/ },
+  { name: 'Netlify', pattern: /^[a-z0-9-]+\.netlify\.app$/ },
+  { name: 'Shopify', pattern: /^[a-z0-9-]+\.myshopify\.com$/ },
+  { name: 'Vercel', pattern: /^[a-z0-9-]+\.vercel\.app$/ },
+  { name: 'Firebase', pattern: /^[a-z0-9-]+\.web\.app$/ },
+];
+
+const TAKEOVER_SIGNATURES = {
+  'AWS S3': {
+    patterns: ['s3', '.amazonaws.com'],
+    errorSignatures: ['<Code>NoSuchBucket</Code>', 'The specified bucket does not exist']
+  },
+  'Heroku': {
+    patterns: ['heroku'],
+    errorSignatures: ['No such app', "There's nothing here, yet."],
+    serverHeader: 'Cowboy'
+  },
+  'Azure Blob': {
+    patterns: ['azure', '.blob.core.windows.net'],
+    errorSignatures: ['<Code>BlobNotFound</Code>', '<Code>ContainerNotFound</Code>']
+  },
+  'GitHub Pages': {
+    patterns: ['github'],
+    errorSignatures: ["There isn't a GitHub Pages site here.", 'For root URLs']
+  },
+  'Netlify': {
+    patterns: ['netlify'],
+    errorSignatures: ['Not Found - Request ID:']
+  }
+};
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -60,7 +103,7 @@ serve(async (req) => {
       });
     }
     
-    console.log(`Starting subdomain scan for ${config.domain} (user: ${user_id})`);
+    console.log(`Starting ShadowMap enhanced scan for ${config.domain} (user: ${user_id})`);
 
     // Create scan record
     const { data: scan, error: scanError } = await supabase
@@ -86,7 +129,7 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ 
       scanId: scan.id,
-      message: 'Scan started successfully' 
+      message: 'ShadowMap enhanced scan started successfully' 
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
@@ -102,45 +145,53 @@ serve(async (req) => {
 
 async function performScan(scanId: string, config: ScanConfig, userId: string, supabase: any) {
   try {
-    // Update scan status
-    await updateScanProgress(supabase, scanId, 10, 'Enumerating subdomains...');
+    await updateScanProgress(supabase, scanId, 5, 'Initializing ShadowMap scanner...');
 
-    // 1. CRT.sh Enumeration
-    const crtSubdomains = await crtshEnumeration(config.domain);
+    // 1. Enhanced CRT.sh Enumeration with retries
+    const crtSubdomains = await crtshEnumerationWithRetries(config.domain, 3);
     console.log(`CRT.sh found ${crtSubdomains.size} potential subdomains`);
 
-    // 2. Validate and normalize subdomains
-    const validatedSubdomains = validateSubdomains(crtSubdomains, config.domain);
+    await updateScanProgress(supabase, scanId, 15, 'Validating subdomains...');
+
+    // 2. Enhanced validation and normalization
+    const validatedSubdomains = enhancedValidateSubdomains(crtSubdomains, config.domain);
     console.log(`Validated ${validatedSubdomains.size} subdomains`);
 
-    await updateScanProgress(supabase, scanId, 30, 'Checking DNS resolution...');
+    await updateScanProgress(supabase, scanId, 25, 'Performing DNS resolution...');
 
-    // 3. DNS resolution check
-    const liveSubdomains = await checkDnsLive(validatedSubdomains, config.concurrency);
+    // 3. Enhanced DNS resolution with multiple approaches
+    const liveSubdomains = await enhancedDnsCheck(validatedSubdomains, config.concurrency);
     console.log(`${liveSubdomains.size} live subdomains detected`);
 
-    await updateScanProgress(supabase, scanId, 50, 'Analyzing subdomains...');
+    await updateScanProgress(supabase, scanId, 35, 'Cloud/SaaS reconnaissance...');
 
-    // 4. Analyze each live subdomain
+    // 4. Cloud/SaaS reconnaissance
+    const cloudSaasMap = await cloudSaasRecon(liveSubdomains, config.concurrency);
+
+    await updateScanProgress(supabase, scanId, 45, 'Deep subdomain analysis...');
+
+    // 5. Enhanced subdomain analysis
     const results: SubdomainResult[] = [];
     const subdomainArray = Array.from(liveSubdomains);
     
     for (let i = 0; i < subdomainArray.length; i += config.concurrency) {
       const batch = subdomainArray.slice(i, i + config.concurrency);
-      const batchPromises = batch.map(subdomain => analyzeSubdomain(subdomain, config));
+      const batchPromises = batch.map(subdomain => 
+        enhancedAnalyzeSubdomain(subdomain, config, cloudSaasMap.get(subdomain))
+      );
       const batchResults = await Promise.allSettled(batchPromises);
       
-      batchResults.forEach((result, index) => {
+      batchResults.forEach((result) => {
         if (result.status === 'fulfilled' && result.value) {
           results.push(result.value);
         }
       });
 
-      const progress = 50 + Math.floor((i / subdomainArray.length) * 40);
+      const progress = 45 + Math.floor((i / subdomainArray.length) * 45);
       await updateScanProgress(supabase, scanId, progress, `Analyzed ${i + batch.length}/${subdomainArray.length} subdomains`);
     }
 
-    // 5. Store results in database
+    // 6. Store results in database
     if (results.length > 0) {
       const { error: insertError } = await supabase
         .from('scan_results')
@@ -164,8 +215,8 @@ async function performScan(scanId: string, config: ScanConfig, userId: string, s
       }
     }
 
-    // 6. Update final scan statistics
-    const stats = calculateStats(results);
+    // 7. Calculate final statistics
+    const stats = calculateEnhancedStats(results);
     await supabase
       .from('scans')
       .update({
@@ -179,10 +230,10 @@ async function performScan(scanId: string, config: ScanConfig, userId: string, s
       })
       .eq('id', scanId);
 
-    console.log(`Scan ${scanId} completed successfully`);
+    console.log(`ShadowMap scan ${scanId} completed successfully`);
 
   } catch (error) {
-    console.error(`Error in scan ${scanId}:`, error);
+    console.error(`Error in ShadowMap scan ${scanId}:`, error);
     await supabase
       .from('scans')
       .update({
@@ -193,51 +244,79 @@ async function performScan(scanId: string, config: ScanConfig, userId: string, s
   }
 }
 
-async function crtshEnumeration(domain: string): Promise<Set<string>> {
+// Enhanced CRT.sh enumeration with exponential backoff retries
+async function crtshEnumerationWithRetries(domain: string, maxRetries: number): Promise<Set<string>> {
   const url = `https://crt.sh/?q=%25.${domain}&output=json`;
   const subdomains = new Set<string>();
   
-  try {
-    const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': userAgent,
-        'Accept': 'application/json'
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': userAgent,
+          'Accept': 'application/json'
+        },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        if (response.status >= 500 && attempt < maxRetries - 1) {
+          await sleep(Math.pow(2, attempt) * 1000);
+          continue;
+        }
+        throw new Error(`CRT.sh request failed: ${response.status}`);
       }
-    });
 
-    if (!response.ok) {
-      throw new Error(`CRT.sh request failed: ${response.status}`);
-    }
-
-    const data = await response.json();
-    
-    for (const entry of data) {
-      const names = entry.name_value.split('\n');
-      for (const name of names) {
-        const trimmed = name.trim().toLowerCase();
-        if (trimmed && !trimmed.startsWith('*')) {
-          subdomains.add(trimmed);
+      const data = await response.json();
+      
+      for (const entry of data) {
+        const names = entry.name_value.split('\n');
+        for (const name of names) {
+          const trimmed = name.trim().toLowerCase();
+          if (trimmed && !trimmed.startsWith('*')) {
+            subdomains.add(trimmed);
+          }
         }
       }
+      break;
+    } catch (error) {
+      console.error(`CRT.sh attempt ${attempt + 1} failed:`, error);
+      if (attempt === maxRetries - 1) {
+        console.error('All CRT.sh attempts failed, continuing with empty set');
+      } else {
+        await sleep(Math.pow(2, attempt) * 1000);
+      }
     }
-  } catch (error) {
-    console.error('CRT.sh enumeration error:', error);
   }
 
   return subdomains;
 }
 
-function validateSubdomains(subdomains: Set<string>, targetDomain: string): Set<string> {
+// Enhanced subdomain validation with better normalization
+function enhancedValidateSubdomains(subdomains: Set<string>, targetDomain: string): Set<string> {
   const validated = new Set<string>();
   
   for (const sub of subdomains) {
-    const cleaned = sub.replace(/^\*\./, '').replace(/^www\./, '');
+    // Clean and normalize with better handling
+    let cleaned = sub.replace(/^\*\./, '').replace(/^www\./, '');
     
-    if (IP_REGEX.test(cleaned) || !SUBDOMAIN_REGEX.test(cleaned)) {
+    // Skip IP addresses
+    if (IP_REGEX.test(cleaned)) {
       continue;
     }
     
+    // Enhanced regex validation
+    if (!SUBDOMAIN_REGEX.test(cleaned)) {
+      continue;
+    }
+    
+    // Ensure it belongs to target domain
     if (cleaned.endsWith(`.${targetDomain}`) || cleaned === targetDomain) {
       validated.add(cleaned);
     }
@@ -246,31 +325,24 @@ function validateSubdomains(subdomains: Set<string>, targetDomain: string): Set<
   return validated;
 }
 
-async function checkDnsLive(subdomains: Set<string>, concurrency: number): Promise<Set<string>> {
+// Enhanced DNS resolution with multiple validation approaches
+async function enhancedDnsCheck(subdomains: Set<string>, concurrency: number): Promise<Set<string>> {
   const live = new Set<string>();
   const subdomainArray = Array.from(subdomains);
   
+  // Process in batches to avoid overwhelming the system
   for (let i = 0; i < subdomainArray.length; i += concurrency) {
     const batch = subdomainArray.slice(i, i + concurrency);
     const promises = batch.map(async (subdomain) => {
-      try {
-        // Simple DNS check by attempting HTTP request
-        const response = await fetch(`https://${subdomain}`, {
-          method: 'HEAD',
-          signal: AbortSignal.timeout(5000)
-        });
-        return subdomain;
-      } catch {
-        try {
-          const response = await fetch(`http://${subdomain}`, {
-            method: 'HEAD',
-            signal: AbortSignal.timeout(5000)
-          });
-          return subdomain;
-        } catch {
-          return null;
-        }
-      }
+      // Try multiple approaches: HTTPS, HTTP, and DNS over HTTPS
+      const checks = [
+        checkHttpsAvailability(subdomain),
+        checkHttpAvailability(subdomain),
+        checkDnsResolution(subdomain)
+      ];
+      
+      const results = await Promise.allSettled(checks);
+      return results.some(result => result.status === 'fulfilled' && result.value) ? subdomain : null;
     });
     
     const results = await Promise.allSettled(promises);
@@ -284,7 +356,123 @@ async function checkDnsLive(subdomains: Set<string>, concurrency: number): Promi
   return live;
 }
 
-async function analyzeSubdomain(subdomain: string, config: ScanConfig): Promise<SubdomainResult | null> {
+async function checkHttpsAvailability(subdomain: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    
+    const response = await fetch(`https://${subdomain}`, {
+      method: 'HEAD',
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function checkHttpAvailability(subdomain: string): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+    
+    const response = await fetch(`http://${subdomain}`, {
+      method: 'HEAD',
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function checkDnsResolution(subdomain: string): Promise<boolean> {
+  try {
+    // Use DNS over HTTPS for resolution check
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const response = await fetch(`https://cloudflare-dns.com/dns-query?name=${subdomain}&type=A`, {
+      headers: { 'Accept': 'application/dns-json' },
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    const data = await response.json();
+    return data.Answer && data.Answer.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+// Cloud/SaaS reconnaissance based on Rust implementation
+async function cloudSaasRecon(subdomains: Set<string>, concurrency: number): Promise<Map<string, string[]>> {
+  const results = new Map<string, string[]>();
+  const subdomainArray = Array.from(subdomains);
+  
+  for (let i = 0; i < subdomainArray.length; i += concurrency) {
+    const batch = subdomainArray.slice(i, i + concurrency);
+    const promises = batch.map(async (subdomain) => {
+      const findings: string[] = [];
+      
+      // Check against cloud/SaaS patterns
+      for (const { name, pattern } of CLOUD_SAAS_PATTERNS) {
+        if (pattern.test(subdomain)) {
+          findings.push(`Matched ${name} pattern`);
+        }
+      }
+      
+      // Check for predicted cloud endpoints
+      const predictions = [
+        `api.${subdomain}`,
+        `dev.${subdomain}`,
+        `staging.${subdomain}`,
+        `${subdomain.split('.')[0]}.s3.amazonaws.com`,
+        `${subdomain.split('.')[0]}.blob.core.windows.net`,
+        `${subdomain.split('.')[0]}.storage.googleapis.com`,
+      ];
+      
+      for (const prediction of predictions) {
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          
+          const response = await fetch(`https://${prediction}`, {
+            method: 'HEAD',
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          findings.push(`Predicted endpoint exists: ${prediction}`);
+        } catch {
+          // Prediction failed, continue
+        }
+      }
+      
+      return findings.length > 0 ? { subdomain, findings } : null;
+    });
+    
+    const batchResults = await Promise.allSettled(promises);
+    batchResults.forEach((result) => {
+      if (result.status === 'fulfilled' && result.value) {
+        results.set(result.value.subdomain, result.value.findings);
+      }
+    });
+  }
+  
+  return results;
+}
+
+// Enhanced subdomain analysis based on Rust implementation
+async function enhancedAnalyzeSubdomain(
+  subdomain: string, 
+  config: ScanConfig, 
+  cloudSaas?: string[]
+): Promise<SubdomainResult | null> {
   try {
     const result: SubdomainResult = {
       subdomain,
@@ -293,24 +481,33 @@ async function analyzeSubdomain(subdomain: string, config: ScanConfig): Promise<
       technologies: [],
       vulnerabilities: [],
       risk: 'low',
-      fingerprints: {}
+      fingerprints: {},
+      cloudSaas: cloudSaas || []
     };
 
-    // HTTP Analysis
-    await analyzeHttp(subdomain, result, config);
+    // Enhanced HTTP analysis
+    await enhancedHttpAnalysis(subdomain, result, config);
     
-    // CORS Check
+    // Enhanced port scanning (if enabled)
+    if (config.enablePortScan) {
+      result.openPorts = await enhancedPortScan(subdomain);
+    }
+    
+    // Enhanced CORS check (if enabled)
     if (config.enableCorsCheck) {
-      await checkCors(subdomain, result);
+      await enhancedCorsCheck(subdomain, result);
     }
     
-    // Subdomain Takeover Check
+    // Enhanced subdomain takeover check (if enabled)
     if (config.enableTakeoverCheck) {
-      checkSubdomainTakeover(subdomain, result);
+      result.takeoverEvidence = await enhancedTakeoverCheck(subdomain);
+      if (result.takeoverEvidence && result.takeoverEvidence.length > 0) {
+        result.vulnerabilities.push('Potential subdomain takeover detected');
+      }
     }
     
-    // Calculate risk level
-    result.risk = calculateRisk(result);
+    // Calculate enhanced risk level
+    result.risk = calculateEnhancedRisk(result);
     
     return result;
   } catch (error) {
@@ -319,51 +516,54 @@ async function analyzeSubdomain(subdomain: string, config: ScanConfig): Promise<
   }
 }
 
-async function analyzeHttp(subdomain: string, result: SubdomainResult, config: ScanConfig) {
+// Enhanced HTTP analysis with better fingerprinting
+async function enhancedHttpAnalysis(subdomain: string, result: SubdomainResult, config: ScanConfig) {
   const urls = [`https://${subdomain}`, `http://${subdomain}`];
   
   for (const url of urls) {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), config.timeout * 1000);
+      
       const response = await fetch(url, {
-        signal: AbortSignal.timeout(config.timeout * 1000),
+        signal: controller.signal,
         redirect: 'manual'
       });
       
+      clearTimeout(timeoutId);
       result.httpStatus = response.status;
       
-      // Extract server header
+      // Enhanced header extraction
       const serverHeader = response.headers.get('server');
       if (serverHeader) {
         result.serverHeader = serverHeader;
         result.fingerprints.server = serverHeader;
       }
       
-      // Technology detection from headers
-      detectTechnologies(response.headers, result);
+      // Enhanced technology detection
+      enhancedTechnologyDetection(response.headers, result);
       
-      // Try to get response body for further analysis
+      // Body analysis for deeper fingerprinting
       try {
         const text = await response.text();
-        detectTechnologiesFromBody(text, result);
+        enhancedBodyAnalysis(text, result);
       } catch (e) {
         // Body reading failed, continue
       }
       
       break; // Success, no need to try HTTP
     } catch (error) {
-      // Try next URL
       continue;
     }
   }
 }
 
-function detectTechnologies(headers: Headers, result: SubdomainResult) {
+// Enhanced technology detection based on Rust implementation
+function enhancedTechnologyDetection(headers: Headers, result: SubdomainResult) {
   const techHeaders = [
-    'x-powered-by',
-    'x-aspnet-version',
-    'x-request-id',
-    'via',
-    'x-backend-server'
+    'x-powered-by', 'x-aspnet-version', 'x-request-id', 'via', 
+    'x-backend-server', 'x-runtime', 'x-version', 'x-served-by',
+    'server', 'x-generator', 'x-drupal-dynamic-cache'
   ];
   
   for (const headerName of techHeaders) {
@@ -375,20 +575,25 @@ function detectTechnologies(headers: Headers, result: SubdomainResult) {
   }
 }
 
-function detectTechnologiesFromBody(body: string, result: SubdomainResult) {
+// Enhanced body analysis with more comprehensive detection
+function enhancedBodyAnalysis(body: string, result: SubdomainResult) {
   const bodyLower = body.toLowerCase();
   const techIndicators = [
-    ['wordpress', 'wp-content'],
-    ['drupal', 'drupal'],
-    ['joomla', 'joomla'],
-    ['react', 'react'],
-    ['angular', 'angular'],
-    ['vue', 'vue.js'],
-    ['laravel', 'laravel']
+    { tech: 'WordPress', indicators: ['wp-content', 'wp-includes', '/wp-json/', 'wp-admin'] },
+    { tech: 'Drupal', indicators: ['drupal', 'drupal.js', '/sites/default/files'] },
+    { tech: 'Joomla', indicators: ['joomla', '/media/jui/', 'joomla.org'] },
+    { tech: 'React', indicators: ['react', '__react', 'react-dom', 'react-router'] },
+    { tech: 'Angular', indicators: ['angular', 'ng-app', '@angular', 'angular.js'] },
+    { tech: 'Vue.js', indicators: ['vue.js', 'vue.min.js', 'v-for', 'vuejs'] },
+    { tech: 'Laravel', indicators: ['laravel', 'laravel_session', '/laravel/'] },
+    { tech: 'Django', indicators: ['django', 'csrfmiddlewaretoken', 'django-admin'] },
+    { tech: 'Spring Boot', indicators: ['spring-boot', 'spring framework', 'springframework'] },
+    { tech: 'Express.js', indicators: ['express', 'x-powered-by: express'] },
+    { tech: 'Ruby on Rails', indicators: ['ruby on rails', 'rails', 'authenticity_token'] }
   ];
   
-  for (const [tech, indicator] of techIndicators) {
-    if (bodyLower.includes(indicator)) {
+  for (const { tech, indicators } of techIndicators) {
+    if (indicators.some(indicator => bodyLower.includes(indicator))) {
       result.technologies.push(tech);
       result.fingerprints.framework = tech;
       break;
@@ -396,20 +601,58 @@ function detectTechnologiesFromBody(body: string, result: SubdomainResult) {
   }
 }
 
-async function checkCors(subdomain: string, result: SubdomainResult) {
+// Enhanced port scanning with better timeout handling
+async function enhancedPortScan(subdomain: string): Promise<number[]> {
+  const openPorts: number[] = [];
+  const promises = COMMON_PORTS.map(async (port) => {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
+      // Try HTTP connection first, then raw TCP-like check via fetch
+      const response = await fetch(`http://${subdomain}:${port}`, {
+        method: 'HEAD',
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      return port;
+    } catch {
+      return null;
+    }
+  });
+  
+  const results = await Promise.allSettled(promises);
+  results.forEach((result) => {
+    if (result.status === 'fulfilled' && result.value) {
+      openPorts.push(result.value);
+    }
+  });
+  
+  return openPorts;
+}
+
+// Enhanced CORS check with PoC validation based on Rust implementation
+async function enhancedCorsCheck(subdomain: string, result: SubdomainResult) {
   const testOrigins = [
     'https://evil.com',
     'http://evil.com',
     'null',
-    'https://attacker.example'
+    'https://attacker.example',
+    'https://malicious.domain'
   ];
   
   for (const origin of testOrigins) {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      
       const response = await fetch(`https://${subdomain}`, {
         headers: { 'Origin': origin },
-        signal: AbortSignal.timeout(5000)
+        signal: controller.signal
       });
+      
+      clearTimeout(timeoutId);
       
       const allowOrigin = response.headers.get('access-control-allow-origin');
       const allowCredentials = response.headers.get('access-control-allow-credentials');
@@ -418,13 +661,31 @@ async function checkCors(subdomain: string, result: SubdomainResult) {
         result.corsIssues.push('Wildcard CORS allowed');
         result.vulnerabilities.push('CORS misconfiguration allows cross-origin requests');
       } else if (allowOrigin === origin) {
-        result.corsIssues.push(`Reflects origin: ${origin}`);
-        result.vulnerabilities.push('CORS reflects arbitrary origins');
+        result.corsIssues.push(`Reflects arbitrary origin: ${origin}`);
+        result.vulnerabilities.push('CORS reflects attacker-controlled origins');
       }
       
       if (allowCredentials === 'true') {
-        result.corsIssues.push('Allow-Credentials: true');
-        result.vulnerabilities.push('CORS allows credentials with permissive origin');
+        result.corsIssues.push('Allow-Credentials: true with permissive origin');
+        result.vulnerabilities.push('CORS allows credentials with dangerous configuration');
+      }
+      
+      // Enhanced validation with body inspection for sensitive data
+      if (allowOrigin === '*' || allowOrigin === origin) {
+        try {
+          const body = await response.text();
+          const sensitiveKeywords = ['password', 'token', 'apikey', 'secret', 'credit', 'ssn'];
+          const bodyLower = body.toLowerCase();
+          
+          for (const keyword of sensitiveKeywords) {
+            if (bodyLower.includes(keyword)) {
+              result.vulnerabilities.push(`CORS misconfiguration exposes sensitive data containing: ${keyword}`);
+              break;
+            }
+          }
+        } catch {
+          // Body reading failed
+        }
       }
       
     } catch (error) {
@@ -433,52 +694,120 @@ async function checkCors(subdomain: string, result: SubdomainResult) {
   }
 }
 
-function checkSubdomainTakeover(subdomain: string, result: SubdomainResult) {
-  const takeoverPatterns = [
-    ['heroku', 'Heroku App'],
-    ['s3', 'AWS S3'],
-    ['azure', 'Microsoft Azure'],
-    ['cloudfront', 'AWS CloudFront'],
-    ['github', 'GitHub Pages'],
-    ['firebase', 'Firebase'],
-    ['netlify', 'Netlify'],
-    ['vercel', 'Vercel']
-  ];
-  
+// Enhanced subdomain takeover detection based on Rust implementation
+async function enhancedTakeoverCheck(subdomain: string): Promise<TakeoverEvidence[]> {
+  const evidence: TakeoverEvidence[] = [];
   const subdomainLower = subdomain.toLowerCase();
   
-  for (const [pattern, service] of takeoverPatterns) {
-    if (subdomainLower.includes(pattern)) {
-      result.vulnerabilities.push(`Potential ${service} subdomain takeover`);
+  for (const [service, config] of Object.entries(TAKEOVER_SIGNATURES)) {
+    // Check if subdomain matches service patterns
+    if (config.patterns.some(pattern => subdomainLower.includes(pattern))) {
+      try {
+        // Test HTTPS first, then HTTP
+        for (const protocol of ['https', 'http']) {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          
+          const response = await fetch(`${protocol}://${subdomain}`, {
+            signal: controller.signal
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.status === 404) {
+            const body = await response.text();
+            
+            // Check for service-specific error signatures
+            if (config.errorSignatures.some(sig => body.includes(sig))) {
+              evidence.push({
+                service,
+                confidence: 'High',
+                proof: body.substring(0, 500)
+              });
+              break;
+            }
+            
+            // Check server header for Heroku
+            if (service === 'Heroku' && config.serverHeader) {
+              const serverHeader = response.headers.get('server');
+              if (serverHeader === config.serverHeader) {
+                evidence.push({
+                  service,
+                  confidence: 'Medium',
+                  proof: `Server header: ${serverHeader}, Body snippet: ${body.substring(0, 200)}`
+                });
+                break;
+              }
+            }
+          }
+        }
+      } catch (error) {
+        // Connection failed - could indicate takeover opportunity
+        if (error.name === 'AbortError' || error.message.includes('fetch')) {
+          evidence.push({
+            service,
+            confidence: 'Low',
+            proof: `Connection failed: ${error.message}`
+          });
+        }
+      }
     }
   }
+  
+  return evidence;
 }
 
-function calculateRisk(result: SubdomainResult): 'low' | 'medium' | 'high' | 'critical' {
+// Enhanced risk calculation based on comprehensive factors
+function calculateEnhancedRisk(result: SubdomainResult): 'low' | 'medium' | 'high' | 'critical' {
   let riskScore = 0;
   
-  // CORS issues
-  if (result.corsIssues.length > 0) {
-    riskScore += result.corsIssues.length * 2;
-  }
+  // CORS issues scoring
+  riskScore += result.corsIssues.length * 2;
   
-  // Vulnerabilities
+  // Vulnerability scoring
   riskScore += result.vulnerabilities.length * 3;
   
-  // Subdomain takeover is critical
-  if (result.vulnerabilities.some(v => v.includes('takeover'))) {
+  // Takeover evidence scoring
+  if (result.takeoverEvidence) {
+    for (const evidence of result.takeoverEvidence) {
+      switch (evidence.confidence) {
+        case 'High': riskScore += 10; break;
+        case 'Medium': riskScore += 6; break;
+        case 'Low': riskScore += 3; break;
+      }
+    }
+  }
+  
+  // Open ports scoring
+  riskScore += Math.min(result.openPorts.length, 5);
+  
+  // Cloud/SaaS findings scoring
+  if (result.cloudSaas && result.cloudSaas.length > 0) {
+    riskScore += result.cloudSaas.length;
+  }
+  
+  // Critical conditions
+  if (result.takeoverEvidence?.some(e => e.confidence === 'High')) {
     return 'critical';
   }
   
-  if (riskScore >= 6) return 'high';
-  if (riskScore >= 3) return 'medium';
+  if (result.vulnerabilities.some(v => v.includes('sensitive data'))) {
+    return 'critical';
+  }
+  
+  if (riskScore >= 15) return 'critical';
+  if (riskScore >= 8) return 'high';
+  if (riskScore >= 4) return 'medium';
   return 'low';
 }
 
-function calculateStats(results: SubdomainResult[]) {
+// Enhanced statistics calculation
+function calculateEnhancedStats(results: SubdomainResult[]) {
   return {
     vulnerabilities: results.reduce((acc, r) => acc + r.vulnerabilities.length, 0),
-    highRisk: results.filter(r => r.risk === 'high' || r.risk === 'critical').length
+    highRisk: results.filter(r => r.risk === 'high' || r.risk === 'critical').length,
+    takeoverTargets: results.filter(r => r.takeoverEvidence && r.takeoverEvidence.length > 0).length,
+    corsIssues: results.filter(r => r.corsIssues.length > 0).length
   };
 }
 
@@ -490,4 +819,8 @@ async function updateScanProgress(supabase: any, scanId: string, progress: numbe
       ...(status && { status: 'running' })
     })
     .eq('id', scanId);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
